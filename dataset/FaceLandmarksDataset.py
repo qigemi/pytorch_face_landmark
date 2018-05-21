@@ -129,6 +129,7 @@ class FaceLandmarksDataset(Dataset):
 
     def __getitem__(self, idx):
         img_name = os.path.join(self.root_dir, self.landmarks_frame.ix[idx, 0])
+        #print(img_name)
         image = cv2.imread(img_name)
         if self.rgb:
             image = image[...,::-1]

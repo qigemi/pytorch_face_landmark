@@ -1,24 +1,25 @@
 import cv2
 import os
 import random
-anno_root = '/mnt/lvmhdd1/dataset/face_keypoints/annos/'
-img_root = '/mnt/lvmhdd1/dataset/face_keypoints/images/'
+train_anno = '/media/qigemi/data/MTFL/training.txt'
+test_anno = '/media/qigemi/data/MTFL/testing.txt'
 
 items = []
-for anno_path in os.listdir(anno_root):
-    if 'pts' in anno_path:
-        with open(os.path.join(anno_root,anno_path)) as anno_file:
-            landmarks = anno_file.readline().strip().split(' ')
-            if(len(landmarks) == 152):
-                items.append(anno_path.split('.')[0]+'.jpg,'+','.join(landmarks)+'\n')
-            else:
-                print anno_path
-random.shuffle(items)
-train_items = items[:30000]
-val_items = items[30000:]
+with open(train_anno) as anno_file:
+    lines = anno_file.readlines()
+    for line in lines:
+        line = line.split(' ')[1:12]
+        items.append(','.join(line)+'\n')
 with open('face_landmark_train.csv','w') as trainfile:
-    for item in train_items:
+    for item in items:
         trainfile.write(item)
+
+items = []
+with open(test_anno) as anno_file:
+    lines = anno_file.readlines()
+    for line in lines:
+        line = line.split(' ')[1:12]
+        items.append(','.join(line)+'\n')
 with open('face_landmark_val.csv','w') as valfile:
-    for item in val_items:
+    for item in items:
         valfile.write(item)

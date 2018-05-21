@@ -26,17 +26,21 @@ from utils import Bar, Logger, AverageMeter,normalizedME, mkdir_p, savefig
 
 parser = argparse.ArgumentParser(description='PyTorch face landmark Training')
 # Datasets
-parser.add_argument('-d', '--dataset', default='face76', type=str)
+parser.add_argument('-d', '--dataset', default='face5', type=str)
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 # Optimization options
-parser.add_argument('--epochs', default=120, type=int, metavar='N',
+parser.add_argument('--epochs', default=10, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--train-batch', default=256, type=int, metavar='N',
+parser.add_argument('--sigma', default=1, type=int, metavar='N')
+parser.add_argument('--point-size', default=5, type=int, metavar='N')
+parser.add_argument('--img-size', default=64, type=int, metavar='N')
+
+parser.add_argument('--train-batch', default=4, type=int, metavar='N',
                     help='train batchsize')
-parser.add_argument('--test-batch', default=100, type=int, metavar='N',
+parser.add_argument('--test-batch', default=1, type=int, metavar='N',
                     help='test batchsize')
 parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float,
                     metavar='LR', help='initial learning rate')
@@ -50,7 +54,7 @@ parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
 parser.add_argument('--weight-decay', '--wd', default=5e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)')
 # Checkpoints
-parser.add_argument('-c', '--checkpoint', default='checkpoint/1011/', type=str, metavar='PATH',
+parser.add_argument('-c', '--checkpoint', default='checkpoint/2/', type=str, metavar='PATH',
                     help='path to save checkpoint (default: checkpoint)')
 #parser.add_argument('--resume', default='/home/foto1/workspace/zuoxin/face_landmark/checkpoint/0918/facelandmark_squeezenet_128_55.pth.tar', type=str, metavar='PATH',
 #                    help='path to latest checkpoint (default: none)')
@@ -67,7 +71,7 @@ parser.add_argument('--manualSeed', type=int, help='manual seed')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
 #Device options
-parser.add_argument('--gpu_id', default='2,3', type=str,
+parser.add_argument('--gpu_id', default='0', type=str,
 help='id(s) for CUDA_VISIBLE_DEVICES')
 
 args = parser.parse_args()
@@ -95,9 +99,6 @@ def main():
     if not os.path.isdir(args.checkpoint):
         mkdir_p(args.checkpoint)
 
-
-
-
     # Data
     print('==> Preparing dataset %s' % args.dataset)
     transform_train = transforms.Compose([
@@ -120,29 +121,33 @@ def main():
                            [ 0.229, 0.224, 0.225 ]),
     ])
 
-    trainset = FaceLandmarksDataset(csv_file='dataset/cropped_face_landmarks_train_2.txt', transform=transform_train,root_dir='/home/foto1/Database/face_keypoints_76/cropped_images_2/')
+    trainset = FaceLandmarksDataset(csv_file='dataset/face_landmark_train.csv', transform=transform_train,root_dir='/media/qigemi/data/MTFL')
     trainloader = data.DataLoader(trainset, batch_size=args.train_batch, shuffle=True, num_workers=args.workers)
 
-    testset = FaceLandmarksDataset(csv_file='dataset/cropped_face_landmarks_val_2.txt', transform=transform_test,root_dir='/home/foto1/Database/face_keypoints_76/cropped_images_2/')
+    testset = FaceLandmarksDataset(csv_file='dataset/face_landmark_val.csv', transform=transform_test,root_dir='/media/qigemi/data/MTFL')
     testloader = data.DataLoader(testset, batch_size=args.train_batch, shuffle=True, num_workers=args.workers)
-    model = SqueezeNet(152)
+
+    model = UNet(3,5)
+    params = torch.load('/home/qigemi/project/human_pose/Pytorch-UNet/MODEL.pth')
+    model.load_state_dict(params)
+    #print('success!!!\n')
     cudnn.benchmark = True
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
 
     criterion = nn.MSELoss().cuda()
-    #optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-    ignored_params = list(map(id, model.fc.parameters()))
-    base_params = filter(lambda p: id(p) not in ignored_params,
-                         model.parameters())
-    params = [
-        {'params': base_params, 'lr': args.lr},
-        {'params': model.fc.parameters(), 'lr': args.lr * 10}
-    ]
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+    #ignored_params = list(map(id, model.fc.parameters()))
+    #base_params = filter(lambda p: id(p) not in ignored_params,
+    #                     model.parameters())
+    #params = [
+    #    {'params': base_params, 'lr': args.lr},
+    #    {'params': model.fc.parameters(), 'lr': args.lr * 10}
+    #]
     model = torch.nn.DataParallel(model).cuda()
-    optimizer = optim.Adam(params=params, lr=args.lr, weight_decay=args.weight_decay)
+    #optimizer = optim.Adam(params=params, lr=args.lr, weight_decay=args.weight_decay)
 
     # Resume
-    title = 'facelandmark_squeezenet_64'
+    title = 'facelandmark_hourglass'
     if args.resume:
         # Load checkpoint.
         print('==> Resuming from checkpoint..')
@@ -157,14 +162,16 @@ def main():
             logger = Logger(os.path.join(args.checkpoint, title+'_log.txt'), title=title, resume=True)
         else:
             logger = Logger(os.path.join(args.checkpoint, title+'_log.txt'), title=title)
-            logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
+            logger.set_names(['Learning Rate', 'Train Loss', 'Train Acc.'])
     else:
         logger = Logger(os.path.join(args.checkpoint, title+'_log.txt'), title=title)
-        logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
+#        logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
+        logger.set_names(['Learning Rate', 'Train Loss', 'Train Acc.'])
 
 
     if args.evaluate:
         print('\nEvaluation only')
+        model.load_state_dict(torch.load('checkpoint/2/model_best.pth.tar')['state_dict'])
         test_loss, test_acc = test(testloader, model, criterion, start_epoch, use_cuda)
         print(' Test Loss:  %.8f, Test Acc:  %.2f' % (test_loss, test_acc))
         return
@@ -176,21 +183,22 @@ def main():
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
         train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch, use_cuda)
-        test_loss, test_acc = test(testloader, model, criterion, epoch, use_cuda)
+#        test_loss, test_acc = test(testloader, model, criterion, epoch, use_cuda)
 
         # append logger file
-        logger.append([state['lr'], train_loss, test_loss, train_acc, test_acc])
+        logger.append([state['lr'], train_loss, train_acc])
 
         # save model
-        is_best = test_loss <best_acc
-        best_acc =min(test_loss, best_acc)
+        is_best = train_loss <best_acc
+        best_acc =min(train_loss, best_acc)
         save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
-                'acc': test_acc,
+                'acc': train_acc,
                 'best_acc': best_acc,
                 'optimizer' : optimizer.state_dict(),
             }, is_best, checkpoint=args.checkpoint,filename=title+'_'+str(epoch)+'.pth.tar')
+
 
     logger.close()
     logger.plot()
@@ -198,6 +206,17 @@ def main():
 
     print('Best acc:')
     print(best_acc)
+
+def putGaussian(gt,x,y):
+    #print(x,y)
+    y_range = [i for i in range(args.img_size)]
+    x_range = [i for i in range(args.img_size)]
+    xx, yy = np.meshgrid(x_range, y_range)
+    d2 = (xx - y) ** 2 + (yy - x) ** 2
+    exponent = d2 / 2.0 / args.sigma / args.sigma
+    heatmap = np.exp(-exponent)
+    gt = gt + heatmap
+    return gt
 
 def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     # switch to train mode
@@ -214,13 +233,31 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         data_time.update(time.time() - end)
         inputs = batch_data['image']
         targets = batch_data['landmarks']
+        inputs = torch.autograd.Variable(inputs)
         if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda(async=True)
-        inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
+            inputs = inputs.cuda()
 
         # compute output
-        outputs = model(inputs)
-        loss = criterion(outputs, targets)
+        outputs = model(inputs)#output.shape = (n,5,64,64)
+        gt = np.zeros(outputs.shape)
+        for i,face in enumerate(targets):
+            for j in range(outputs.shape[1]):
+                x = face[j*2]*args.img_size
+                y = face[j*2+1]*args.img_size
+                gt[i][j] = putGaussian(gt[i][j],x,y)
+        gt = torch.from_numpy(gt.astype(np.float32))
+        #print(outputs.shape, gt.shape)
+        gt = torch.autograd.Variable(gt)
+        if use_cuda:
+            gt = gt.cuda()
+
+        loss = criterion(outputs, gt)
+
+        gt=gt.cpu().data.numpy()
+        outputs = outputs.cpu().data.numpy()
+        cv2.imshow('groundtruth',gt[0][0])
+        cv2.imshow('result',outputs[0][0])
+        cv2.waitKey(200)
 
         # measure accuracy and record loss
         #nms= normalizedME(outputs.data,targets.data,64,64)
@@ -269,12 +306,29 @@ def test(testloader, model, criterion, epoch, use_cuda):
         inputs = batch_data['image']
         targets = batch_data['landmarks']
         if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda(async=True)
-        inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
+            inputs = inputs.cuda()
+        inputs = torch.autograd.Variable(inputs)
 
         # compute output
-        outputs = model(inputs)
-        loss = criterion(outputs, targets)
+        outputs = model(inputs)#output.shape = (n,5,64,64)
+        gt = np.zeros(outputs.shape)
+        for i,face in enumerate(targets):
+            for j in range(outputs.shape[1]):
+                x = face[j*2]*args.img_size
+                y = face[j*2+1]*args.img_size
+                gt[i][j] = putGaussian(gt[i][j],x,y)
+        gt = torch.from_numpy(gt.astype(np.float32))
+        #print(outputs.shape, gt.shape)
+        if use_cuda:
+            gt = gt.cuda()
+        gt = torch.autograd.Variable(gt)
+        loss = criterion(outputs, gt)
+
+        gt=gt.cpu().data.numpy()
+        outputs = outputs.cpu().data.numpy()
+        cv2.imshow('groundtruth',gt[0][0])
+        cv2.imshow('result',outputs[0][0])
+        cv2.waitKey(0)
 
         # measure accuracy and record loss
         losses.update(loss.data[0], inputs.size(0))
